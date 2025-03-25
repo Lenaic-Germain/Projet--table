@@ -1,0 +1,10 @@
+#!/bin/bash
+# MQTT Broker details
+BROKER="192.168.4.2"   # Change to your MQTT broker address
+TOPIC="Etable/Volume"          # Change to your topic
+
+# Log file
+LOGFILE="/home/etable/Documents/mqtt_logs.txt" # Les log ne fonctionnent pas
+
+# Run MQTT subscriber (using mosquitto_sub)
+mosquitto_sub -h "$BROKER" -t "$TOPIC" | tee -a "$LOGFILE"
