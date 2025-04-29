@@ -1,10 +1,11 @@
+#include <MySQL_Connection.h>
+#include <MySQL_Cursor.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <SPI.h>
 #include <MFRC522.h>
-#include <MySQL_Connector_Arduino.h>
 
 // WiFi & MQTT Setup
 const char* ssid = "ESP32_Server";
@@ -24,11 +25,13 @@ DallasTemperature sensors(&oneWire);
 MFRC522 rfid(SS_PIN, RST_PIN);
 
 // MySQL Connection
-IPAddress server_addr(192, 168, 4, 2);  // MySQL Server IP
-char user[] = "etable_user";  // MySQL Username
-char password_db[] = "yourpassword";  // MySQL Password
-WiFiClient client;
-MySQL_Connector conn(&client);
+IPAddress server_addr(192, 168, 4, 2);  // IP du serveur MariaDB
+char user[] = "etable_user";  // Nom d'utilisateur MariaDB
+char password_db[] = "yourpassword";  // Mot de passe MariaDB
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+MySQL_Connection conn((Client *)&espClient);
 
 // Variables
 int cowID = 0;
@@ -58,9 +61,17 @@ void reconnect() {
 void setup() {
   Serial.begin(115200);
   setup_wifi();
-  conn.connect(server_addr, 3306, user, password_db);
+  client.setServer(mqtt_server, 1883);
+
+  // Connexion à la base de données
+  Serial.print("Connexion à MariaDB...");
+  if (conn.connect(server_addr, 3306, user, password_db)) {
+    Serial.println(" Connecté !");
+  } else {
+    Serial.println(" Échec de connexion !");
+  }
+
   sensors.begin();
-  
   SPI.begin();
   rfid.PCD_Init();
   Serial.println("RFID Scanner Ready");
@@ -72,45 +83,54 @@ void loop() {
   }
   client.loop();
 
-  // Check for RFID Tag
+  // Vérifier la présence d'un tag RFID
   if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
-    Serial.print("RFID Tag Detected: ");
-    
-    // Convert RFID UID to String
+    Serial.print("RFID Tag Detecté: ");
+
+    // Convertir l'UID RFID en String
     String tagID = "";
     for (byte i = 0; i < rfid.uid.size; i++) {
       tagID += String(rfid.uid.uidByte[i], HEX);
     }
     Serial.println(tagID);
 
-    // Publish RFID Data
-    char tagCharArray[20];
-    tagID.toCharArray(tagCharArray, 20);
-    client.publish(mqtt_topic_rfid, tagCharArray);
+    // Convertir String en char array
+    char tagCharArray[30];
+    tagID.toCharArray(tagCharArray, sizeof(tagCharArray));
 
-    // Update cowID in MySQL
-    char query[200];
-    sprintf(query, "UPDATE cows SET rfid_tag='%s' WHERE cowID='%d'", tagCharArray, cowID);
-    
-    if (conn.connected()) {
-      MySQL_Query sql_query = MySQL_Query(&conn);
-      if (sql_query.execute(query)) {
-        Serial.println("RFID assigned to cow successfully");
-      } else {
-        Serial.println("SQL Error");
-      }
+    // Publier les données RFID via MQTT
+    if (client.publish(mqtt_topic_rfid, tagCharArray)) {
+      Serial.println("RFID publié avec succès !");
+    } else {
+      Serial.println("Échec de la publication MQTT");
     }
 
-    Serial.print("Cow ID Assigned: ");
+    delay(100);
+
+    // Mettre à jour cowID dans la base de données
+    if (conn.connected()) {
+      char query[200];
+      sprintf(query, "UPDATE cows SET rfid_tag='%s' WHERE cowID='%d'", tagCharArray, cowID);
+
+      // Création d'un curseur MySQL pour exécuter la requête
+      MySQL_Cursor *cur = new MySQL_Cursor(&conn);
+      cur->execute(query);
+      delete cur;  // Libération de la mémoire
+      Serial.println("RFID assigné à la vache avec succès");
+    } else {
+      Serial.println("Connexion à MariaDB perdue !");
+    }
+
+    Serial.print("Cow ID Assigné: ");
     Serial.println(cowID);
 
     cowID++;
-    
+
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
   }
 
-  // Read Temperature
+  // Lire la température
   sensors.requestTemperatures();
   float temperatureC = sensors.getTempCByIndex(0);
 
