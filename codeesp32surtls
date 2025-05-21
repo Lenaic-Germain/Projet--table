@@ -1,0 +1,176 @@
+#include <MySQL_Connection.h>
+#include <MySQL_Cursor.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include <SPI.h>
+#include <MFRC522.h>
+
+// WiFi & MQTT Setup
+const char* ssid = "ESP32_Server";
+const char* password = "12345678";
+const char* mqtt_server = "192.168.4.2";  // MQTT broker IP
+const char* mqtt_topic_temp = "temperature";
+const char* mqtt_topic_rfid = "rfid";
+
+// DS18B20 Temperature Sensor
+const int oneWireBus = 4;
+OneWire oneWire(oneWireBus);
+DallasTemperature sensors(&oneWire);
+
+// RFID Setup
+#define SS_PIN  5
+#define RST_PIN 22
+MFRC522 rfid(SS_PIN, RST_PIN);
+
+// MySQL Connection
+IPAddress server_addr(192, 168, 4, 2);  // IP du serveur MariaDB
+char user[] = "etable_user";  // Nom d'utilisateur MariaDB
+char password_db[] = "yourpassword";  // Mot de passe MariaDB
+
+WiFiClientSecure espClient;  // Use WiFiClientSecure for secure connection
+PubSubClient client(espClient);  // MQTT client using secure client
+MySQL_Connection conn((Client *)&espClient);
+
+// CA Certificate (make sure to update this with your CA certificate)
+const char* ca_cert = \
+"-----BEGIN CERTIFICATE-----\n" \
+"MIIDmzCCAoOgAwIBAgIUa0rKQcxXetJ66yJaole52/yxTpIwDQYJKoZIhvcNAQEL
+BQAwXTELMAkGA1UEBhMCVVMxDjAMBgNVBAgMBUxvY2FsMQwwCgYDVQQHDANMQU4x
+DTALBgNVBAoMBEhvbWUxDzANBgNVBAsMBkJyb2tlcjEQMA4GA1UEAwwHTVFUVC1D
+QTAeFw0yNTA1MjEwNjQ3MDJaFw0zNTA1MTkwNjQ3MDJaMF0xCzAJBgNVBAYTAlVT
+MQ4wDAYDVQQIDAVMb2NhbDEMMAoGA1UEBwwDTEFOMQ0wCwYDVQQKDARIb21lMQ8w
+DQYDVQQLDAZCcm9rZXIxEDAOBgNVBAMMB01RVFQtQ0EwggEiMA0GCSqGSIb3DQEB
+AQUAA4IBDwAwggEKAoIBAQCqg6JX+SYbp4jUTy8tw4D3KBO7EUfRjVf5xIjjc+7a
+KUOdRNbCYE+idwClEIkhrxsWuGsFwCWoNJScx2d2EL+n6bbupfQkSMJupq2iKXmu
+bxVD4oL5gu8t6z+dKO0K+lVaI2dkaeMn63PbSiKxEpSCn0EaZHk5tgLTPlrs8iSG
+M6xbiGpEkqHK0viWM9n1rK2nbHcXcnevB1jU4x6tVlmZdb1jny2LsHQR/heCm5h7
+GFWzK1RPQtk64r9NfUJUjlRZVZHebj/wLyxT6nvxa3qBU7IEuRsT20prPWIHQTGR
+SH00Ltwa04v43cuAYIJjYGI+I6DJyLkXBTXXRD5N4rbbAgMBAAGjUzBRMB0GA1Ud
+DgQWBBS1SdphJR3jS/ZJJ9XAVckM52tNDjAfBgNVHSMEGDAWgBS1SdphJR3jS/ZJ
+J9XAVckM52tNDjAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQBy
+j4yvbORsf2vIPvx6L3sFiGVcC8NLPY6Bpq/nsMWEgL+/88uB+XPepaj9p4KK3koe
+b+IOXcr10cHgmGVSKCK9/UeDy+e1coW7OelTZt++NbOzoPglu79FbPAcz/+1MKX5
+MXqQEH5LHtozLLdWBHmw1m0HnFGPnxatF3zJ0XfchG3CEXSVcsHKxSCboYnRcRxp
+P0QMwrj+vZlJgmMLOusHlD9FCghAt3eW7rKfoooivDV5PpZTUquoMboAKvJq4CCB
+Wx9uP4B9loYyWFhq0FlgE0Ikhu70Sy+nn8lWz797msVaXIs7XPuP/9L27Dbd6tPq
+zjvcNgr6L0ZGVXZN2O/N";  // Your CA certificate here
+
+// Variables
+int cowID = 0;
+
+void setup_wifi() {
+  Serial.println("Connexion au WiFi...");
+  WiFi.begin("your-SSID", "your-PASSWORD");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connecté au WiFi");
+  Serial.print("Adresse IP : ");
+  Serial.println(WiFi.localIP());
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Connexion au serveur MQTT sécurisé...");
+    if (client.connect("ESP32Client")) {
+      Serial.println("connecté");
+    } else {
+      Serial.print("Échec, rc=");
+      Serial.print(client.state());
+      Serial.println(" nouvelle tentative dans 5 secondes");
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  setup_wifi();
+  client.setServer(mqtt_server, 8883);  // Use port 8883 for secure connection
+  
+  // Set the CA certificate for verifying the broker
+  espClient.setCACert(ca_cert);  // Set the CA certificate
+
+  // Connexion à la base de données
+  Serial.print("Connexion à MariaDB...");
+  if (conn.connect(server_addr, 3306, user, password_db)) {
+    Serial.println(" Connecté !");
+  } else {
+    Serial.println(" Échec de connexion !");
+  }
+
+  sensors.begin();
+  SPI.begin();
+  rfid.PCD_Init();
+  Serial.println("RFID Scanner Ready");
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  // Vérifier la présence d'un tag RFID
+  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+    Serial.print("RFID Tag Detecté: ");
+
+    // Convertir l'UID RFID en String
+    String tagID = "";
+    for (byte i = 0; i < rfid.uid.size; i++) {
+      tagID += String(rfid.uid.uidByte[i], HEX);
+    }
+    Serial.println(tagID);
+
+    // Convertir String en char array
+    char tagCharArray[30];
+    tagID.toCharArray(tagCharArray, sizeof(tagCharArray));
+
+    // Publier les données RFID via MQTT
+    if (client.publish(mqtt_topic_rfid, tagCharArray)) {
+      Serial.println("RFID publié avec succès !");
+    } else {
+      Serial.println("Échec de la publication MQTT");
+    }
+
+    delay(100);
+
+    // Mettre à jour cowID dans la base de données
+    if (conn.connected()) {
+      char query[200];
+      sprintf(query, "UPDATE cows SET rfid_tag='%s' WHERE cowID='%d'", tagCharArray, cowID);
+
+      // Création d'un curseur MySQL pour exécuter la requête
+      MySQL_Cursor *cur = new MySQL_Cursor(&conn);
+      cur->execute(query);
+      delete cur;  // Libération de la mémoire
+      Serial.println("RFID assigné à la vache avec succès");
+    } else {
+      Serial.println("Connexion à MariaDB perdue !");
+    }
+
+    Serial.print("Cow ID Assigné: ");
+    Serial.println(cowID);
+
+    cowID++;
+
+    rfid.PICC_HaltA();
+    rfid.PCD_StopCrypto1();
+  }
+
+  // Lire la température
+  sensors.requestTemperatures();
+  float temperatureC = sensors.getTempCByIndex(0);
+
+  char tempString[8];
+  dtostrf(temperatureC, 1, 2, tempString);
+  Serial.print("Température envoyée: ");
+  Serial.println(tempString);
+  client.publish(mqtt_topic_temp, tempString);
+
+  delay(5000);
+}
