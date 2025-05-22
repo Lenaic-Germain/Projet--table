@@ -1,4 +1,7 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 session_start();
 require_once "includes/db.php";
 
@@ -17,7 +20,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_cow'])) {
     $temperature = $_POST['temperature'];
 
     $stmt = $conn->prepare("INSERT INTO cows (cow_name, age, rfid_tag, milk_amount, temperature) VALUES (?, ?, ?, ?, ?)");
-    $stmt->bind_param("sisdd", $cow_name, $age, $rfid_tag, $milk_amount, $temperature);
+    $stmt->bind_param("sis", $cow_name, $age, $rfid_tag, $milk_amount, $temperature);
     $stmt->execute();
 
     // Log the action
@@ -81,8 +84,6 @@ $result = $conn->query("SELECT * FROM cows ORDER BY cow_id DESC");
             <input type="text" name="cow_name" required placeholder="Cow Name">
             <input type="number" name="age" required placeholder="Age">
             <input type="text" name="rfid_tag" required placeholder="RFID Tag">
-            <input type="number" step="0.01" name="milk_amount" required placeholder="Milk Amount (L)">
-            <input type="number" step="0.1" name="temperature" required placeholder="Temperature (°C)">
             <button type="submit" name="add_cow">Add Cow</button>
         </form>
     </div>

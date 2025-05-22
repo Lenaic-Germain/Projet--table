@@ -1,9 +1,9 @@
 /* Import Bebas Neue Font */
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap');
+@import url('https://fonts.googleapis.com/css?family=Inconsolata');
 
 /* General Page Styles */
 body {
-    font-family: 'Bebas Neue', sans-serif;
+    font-family: 'Inconsolata', sans-serif;
     background-color: #f4f4f4;
     background: linear-gradient(to bottom, #ffffff 30%, #f4f4f4 100%);
     color: #003366;
@@ -85,7 +85,7 @@ nav a:hover {
     border-radius: 8px;
     font-size: 18px;
     display: block;
-    font-family: 'Bebas Neue', sans-serif;
+    font-family: 'Inconsolata', sans-serif;
     background-color: #f9f9f9;
 }
 
@@ -100,7 +100,7 @@ nav a:hover {
     border-radius: 8px;
     cursor: pointer;
     transition: 0.3s;
-    font-family: 'Bebas Neue', sans-serif;
+    font-family: 'Inconsolata', sans-serif;
     text-transform: uppercase;
 }
 
